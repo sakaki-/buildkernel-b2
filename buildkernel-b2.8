@@ -1,0 +1,458 @@
+.TH BUILDKERNEL-B2 8 "Version 1.0.0: January 2015"
+.SH NAME
+buildkernel-b2 \- build bootable Linux kernel for the Excito B2
+.SH SYNOPSIS
+.B buildkernel-b2
+[\fIoptions\fR]
+.SH DESCRIPTION
+\fBbuildkernel-b2\fR is a script that builds a Gentoo Linux kernel
+image suitable for booting either from the B2's internal disk (default),
+or from a USB key (when the \fB--usb\fR option is specified).
+
+It is useful when
+targeting a B2 system with:
+.br
+.RS
+.IP \(bu 2
+the default U-Boot settings in flash memory; and
+.IP \(bu 2
+a payload kernel that has size > 4MiB uncompressed (or > 2MiB compressed).
+.RE
+
+\fBbuildkernel-b2\fR should be run as root, in the top level kernel source
+directory. You will need an appropriate \fI.config\fR file in place when
+building the kernel.
+
+You can run \fBbuildkernel-b2\fR either on the B2 directly, or on a Gentoo PC
+(with an appropriately configured \fBcrossdev\fR setup).
+If running on a PC, a
+directory \fIdeploy_root\fR will be created as a result of running the script,
+with the necessary files for you to copy across to your B2.
+If running on the
+B2 natively, the files (kernel, modules, DTB, config and System.map) will be
+moved to the correct positions for you (and prior copies of all but the modules
+backed up).
+
+.SH ALGORITHM DETAIL (DISK VARIANT)
+.nr step 1 1
+When power is applied to the Excito B2 \fIwithout\fR the rear button depressed,
+its U-Boot bootloader by default executes the \fBdiskboot\fR command,
+which attempts to:
+.IP \n[step]) 3
+load \fI/boot/uImage\fR to 0x00400000 (4MiB), then
+.IP \n+[step])
+load \fI/boot/8313E21.dtb\fR to 0x00600000 (6MiB), then
+.IP \n+[step])
+\fBbootm\fR 0x00400000 - 0x00600000
+.RE
+
+Unfortunately, a fairly standard 3.18+ kernel has a size >2MiB,
+even when compressed (assuming reasonable built-in options, such as ext4
+support etc), so when U-Boot loads the DTB to the 6MiB address in
+step 2, it ends up overwriting some of it.
+Even if this problem were to be avoided, there is a further issue: the
+uncompressed kernel is usually >4MiB, but must be loaded to address
+0x00000000, so U-Boot will refuse run it after decompression (as the uImage
+header will be detected to have been damaged)!
+In either case, the image will fail to boot.
+
+This can of course be worked around by changing U-Boot's flash
+environment (to set safer load addresses), but that risks a user bricking
+her device, so we'd like to avoid it.
+
+Accordingly, in this script, we build a modified uImage, which can be
+booted successfully with the default U-Boot settings.
+This contains a 'shim' (built using the PowerPC assembly code from
+\fIreloc_shim.S\fR) uImage,
+followed by enough zero padding to reach the 16MiB boundary, followed by
+a 32-bit big endian quantity holding the length of the 'real' kernel,
+and followed finally by the uncompressed 'real' kernel itself (the payload).
+
+As such, when diskboot loads our augmented uImage to 0x00400000 in step 1, we
+end up with the following memory map:
+.TS
+allbox tab(%);
+lb lb
+l l
+c s
+l l
+l l.
+Address%Contents
+T{
+0x00400000
+T}%T{
+valid (small) uImage of shim, load/exec address 0x020000000
+T}
+ ... zero padding ...
+T{
+0x01000000
+T}%T{
+length of kernel (4 bytes big endian unsigned)
+T}
+T{
+0x01000004
+T}%T{
+uncompressed 'real' kernel
+T}
+.TE
+
+
+And after it loads the DTB in step 2, we have:
+.TS
+allbox tab(%);
+lb lb
+l l
+c s
+l l
+c s
+l l
+l l.
+Address%Contents
+T{
+0x00400000
+T}%T{
+valid (small) uImage of shim, load/exec address 0x020000000
+T}
+ ... zero padding ...
+T{
+0x00600000
+T}%T{
+valid image of (initial) DTB
+T}
+ ... zero padding ...
+T{
+0x01000000
+T}%T{
+length of kernel (4 bytes big endian unsigned)
+T}
+T{
+0x01000004
+T}%T{
+uncompressed 'real' kernel
+T}
+.TE
+
+
+Then \fBbootm\fR is run by U-Boot in step 3, which copies our uImage 'shim'
+payload to its target address (which we set via mkimage to be 0x02000000),
+patches up the DTB (with additional info, such as the desired kernel
+command line) and relocates it to somewhere below the 8MiB boundary that
+U-Boot thinks is safe, sets up the various registers required to invoke a
+PowerPC kernel (see the file \fIarch/powerpc/lib/bootm.c\fR, function 
+\fBboot_jump_linux()\fR, in the U-Boot source code), and then starts
+the 'kernel' (our shim, in this case), at its execution address
+(which we set also to be 0x02000000).
+
+The map is then:
+.TS
+allbox tab(%);
+lb lb
+l l
+c s
+l l
+c s
+l l
+c s
+l l
+l l
+l l.
+Address%Contents
+T{
+0x00400000
+T}%T{
+valid (small) uImage of shim, load/exec address 0x020000000
+T}
+ ... zero padding ...
+T{
+0x00600000
+T}%T{
+valid image of (initial) DTB
+T}
+ ... zero padding ...
+T{
+0x00??????
+T}%T{
+U-Boot's modified copy of the DTB (with command line
+etc.), somewhere 'safe' (it thinks) below the
+8MiB boundary; the address of this is in r3
+when the kernel (actually, our shim) is called
+T}
+ ... zero padding ...
+T{
+0x01000000
+T}%T{
+length of kernel (4 bytes big endian unsigned)
+T}
+T{
+0x01000004
+T}%T{
+uncompressed 'real' kernel
+T}
+T{
+0x02000000
+T}%T{
+our shim (which U-Boot has just started)
+T}
+.TE
+
+
+.nr step 1 1
+The shim will then:
+.IP \n[step]) 3
+copy the (U-Boot modified and relocated) DTB up to a genuinely safe
+memory location (0x00f00000, the 15MiB boundary), where the
+uncompressed (real) kernel will definitely not overwrite it
+.IP \n+[step])
+patch up the r3 register with the new DTB address
+.IP \n+[step])
+copy the (real) uncompressed kernel to 0x00000000, then
+.IP \n+[step])
+jump to 0x00000000 to start the (real) kernel.
+.RE
+
+Just prior to jumping into the real kernel, we therefore have:
+.TS
+allbox tab(%);
+lb lb
+l l
+c s
+l l
+c s
+l l
+l l
+l l.
+Address%Contents
+T{
+0x00000000
+T}%T{
+the real kernel image (note that the uImage at 0x00400000,
+the original DTB at 0x00600000, and possibly even U-Boot's copy of the
+relocated DTB will probably be overwritten by this,
+but we don't care at this point)
+T}
+ ... zero padding ...
+T{
+0x00f00000
+T}%T{
+valid copy of (U-Boot's modified) DTB
+T}
+ ... zero padding ...
+T{
+0x01000000
+T}%T{
+length of kernel (4 bytes big endian unsigned)
+T}
+T{
+0x01000004
+T}%T{
+uncompressed 'real' kernel
+T}
+T{
+0x02000000
+T}%T{
+our shim (currently executing)
+T}
+.TE
+
+
+Once the real kernel is started, all the extra memory used for these
+copies is of course reclaimed, and boot proceeds as normal.
+
+Please note that the uImage created by this script cannot be tested
+directly by \fBmkimage -l\fR, as that command will attempt to account for all
+the data in the file; however, it \fIdoes\fR work with U-Boot itself, since that
+simply loads the file into memory, and subsequently tries to figure out if
+the data it finds \fIstarting\fR at 0x00400000 is a valid uImage (which it is).
+
+.SH ALGORITHM DETAIL (USB VARIANT)
+.nr step 1 1
+When power is applied to the Excito B2 \fIwith\fR the rear button depressed, its
+U-Boot bootloader by default executes the \fBusbboot\fR command, which attempts
+to:
+.IP \n[step]) 3
+load \fI/install/8313E21.itb\fR (from USB partition 1) to 0x00400000 (4MiB),
+then
+.IP \n+[step])
+\fBbootm\fR
+.RE
+
+The .itb is a flat image tree (FIT) file, which contains a kernel and DTB,
+together with some metadata for both.
+
+Unfortunately, a fairly standard 3.18+ kernel has a size >4MiB, when
+decompressed (assuming reasonable built-in options, such as ext4 support etc),
+and because it has to reside at address 0x00000000, U-Boot will fail to start
+it after decompression (as it will detect the corrupted FIT image header).
+
+This can of course be worked around by changing U-Boot's flash
+environment (to set a safer load address), but that risks a user bricking
+her device, so we'd like to avoid it.
+
+Accordingly, in this script, we build a modified FIT, which can be
+booted successfully with the default U-Boot settings.
+This FIT contains a 'shim' (built using the PowerPC assembly
+code from \fIreloc_shim_itb.S\fR) with the real kernel appended, saved as a raw
+uncompressed binary, plus of course a standard DTB file.
+The FIT contents and metadata are specified by \fIreloc_shim.its\fR, in which
+we specify that our 'kernel' should be moved (by U-Boot) to 0x02000000
+(the 32MiB boundary), and executed from that address.
+The DTB has no specified deployment address.
+
+As such, when \fBusbboot\fR loads our augmented FIT to 0x00400000 in step 1, we
+end up with the following memory map:
+.TS
+allbox tab(%);
+lb lb
+l l
+l l.
+Address%Contents
+T{
+0x00400000
+T}%T{
+valid FIT image
+T}
+.TE
+
+
+When it runs \fBbootm\fR (step 2), U-Boot will copy the kernel (with our
+prepended relocation shim) up to address 0x02000000 (it will not complain
+about this, as there is plenty of memory up there, and the copy will not
+overwrite the original FIT).
+It then modifies the DTB in the FIT image (setting additional
+information, such as the kernel command line), and relocates it to somewhere
+below the 8MiB boundary that it thinks is safe. Then, it sets up the various
+registers required to invoke a PowerPC kernel (see the file
+\fIarch/powerpc/lib/bootm.c\fR, function \fBboot_jump_linux()\fR,
+in the U-Boot source code), and then starts the 'kernel' (actually,
+in this case, our prepended shim), at 0x02000000.
+
+The map is then:
+.TS
+allbox tab(%);
+lb lb
+l l
+l l
+l l
+l l.
+Address%Contents
+T{
+0x00400000
+T}%T{
+valid FIT image
+T}
+T{
+0x00??????
+T}%T{
+U-Boot's modified copy of the DTB (with command line
+etc.), somewhere 'safe' (it thinks) below the
+8MiB boundary; the address of this is in r3
+when the kernel (actually, our shim) is called
+T}
+T{
+0x02000000
+T}%T{
+our shim (which U-Boot has just started), with the real
+('payload') kernel appended
+T}
+.TE
+
+
+.nr step 1 1
+The shim will then:
+.IP \n[step]) 3
+copy the (U-Boot modified) DTB up to a genuinely safe memory location
+(0x00f00000, the 15MiB boundary), where the uncompressed (real) kernel will
+definitely not overwrite it
+.IP \n+[step])
+patch up the r3 register with the new DTB address
+.IP \n+[step])
+copy the (real) uncompressed kernel to 0x00000000, then
+.IP \n+[step])
+jump to 0x00000000 to start the (real) kernel
+.RE
+
+Just prior to jumping into the real kernel, we therefore have:
+.TS
+allbox tab(%);
+lb lb
+l l
+l l
+l l
+l l.
+Address%Contents
+T{
+0x00000000
+T}%T{
+copy of the real kernel image (note that the FIT at 0x00400000, and 
+possibly even U-Boot's copy of the relocated DTB will probably be overwritten
+by this, but we don't care at this point)
+T}
+T{
+0x00f00000
+T}%T{
+valid copy of (U-Boot's modified) DTB
+T}
+T{
+0x02000000
+T}%T{
+our shim (currently executing), with copy of the real kernel image appended
+T}
+.TE
+
+
+Once the real kernel is started, all the extra memory used for these
+copies is of course reclaimed, and boot proceeds as normal.
+
+NB - you must use uncompressed images for this trick to work.
+
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-clean
+Specifies that a \fBmake clean\fR should be carried out in the kernel source
+directory prior to building (this will leave the \fI.config\fR file intact).
+Most of the time, it is fine not to \fBmake clean\fR.
+.TP
+.BR \-h ", " \-\-help
+Displays a short help screen, and exits.
+.TP
+.BR \-u ", " \-\-usb
+Instructs \fBbuildkernel-b2\fR to create a USB-bootable FIT image (8313E21.itb),
+rather than the default uImage.
+.TP
+.BR \-v ", " \-\-verbose
+Provides more verbose output from invoked tools, where possible.
+.TP
+.BR \-V ", " \-\-version
+Displays the version number of \fBbuildkernel-b2\fR, and exits.
+
+.SH BUGS
+.br
+.IP \(bu 2
+\fBbuildkernel-b2\fR currently executes the kernel build process as the
+root user.
+It would be a little more hygienic to build as a non-privileged user,
+and then install as root.
+Also, this script should really be integrated into the \fIarch/powerpc/boot\fR
+wrapper build process, rather than be shipped standalone.
+.IP \(bu 2
+To make this work, you really need to have a kernel \fI.config\fR that
+overrides the bootloader-provided command line (since that will specify an
+incorrect root, unless you reflash the U-Boot environment).
+.IP \(bu 2
+It should in theory be possible to use \fBkexec()\fR to have a small kernel
+chainload the real one, but I haven't had any success getting this to work
+cleanly on the B2. If you have, please let me know!
+.RE
+.SH COPYRIGHT
+.nf
+Copyright \(co 2015 sakaki
+License GPLv3+ (GNU GPL version 3 or later)
+<http://gnu.org/licenses/gpl.html>
+
+This is free software, you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+.fi
+.SH AUTHORS
+sakaki \(em send bug reports or comments to <sakaki@deciban.com>
+.SH "SEE ALSO"
+.BR make (1)
