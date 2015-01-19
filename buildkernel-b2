@@ -322,7 +322,9 @@ build_kernel() {
     show "Compiling kernel (${KNAME})..."
     if ((ARG_CLEAN==1)); then
         show "(beginning with a make clean...)"
-        make clean # not mrproper - so our .config file will be left alone
+        # not mrproper - so our .config file
+        # will be left alone
+        make ${MAKEEXTRAS} clean
     fi
     make -j${NUMTHREADS} ${MAKEEXTRAS} vmlinux
     show "Extracting raw binary kernel from vmlinux ELF..."
