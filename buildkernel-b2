@@ -158,6 +158,16 @@ mount_and_remember() {
         ALLMOUNTS["${MOUNTPOINT}"]="${DEVPATH}"
     fi
 }
+mount_and_remember_simple() {
+    local MOUNTPOINT="${1}"
+    if [[ "${ALLMOUNTS[${MOUNTPOINT}]+_}" ]]; then
+        warning "Attempt to mount '${MOUNTPOINT}' more than once"
+    else
+        mount "${MOUNTPOINT}"
+        # and remember we mounted it
+        ALLMOUNTS["${MOUNTPOINT}"]="device path from /etc/fstab"
+    fi
+}
 umount_and_forget() {
     local MOUNTPOINT="${1}"
     if [[ "${ALLMOUNTS[${MOUNTPOINT}]+_}" ]]; then
@@ -289,7 +299,7 @@ process_command_line_options() {
 ensure_boot_partition_mounted() {
     if ! grep -qs "${BOOTMOUNT}" /proc/mounts; then
         show "Mounting ${BOOTMOUNT}..."
-        mount_and_remember "${BOOTMOUNT}"
+        mount_and_remember_simple "${BOOTMOUNT}"
         DIDMOUNT=1
     else
         show "${BOOTMOUNT} is already mounted, leaving it that way..."
