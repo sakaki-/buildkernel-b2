@@ -1,4 +1,4 @@
-.TH BUILDKERNEL-B2 8 "Version 1.0.1: January 2015"
+.TH BUILDKERNEL-B2 8 "Version 1.0.2: January 2015"
 .SH NAME
 buildkernel-b2 \- build bootable Linux kernel for the Excito B2
 .SH SYNOPSIS
@@ -19,10 +19,6 @@ the default U-Boot settings in flash memory; and
 a payload kernel that has size > 4MiB uncompressed (or > 2MiB compressed).
 .RE
 
-\fBbuildkernel-b2\fR should be run as root, in the top level kernel source
-directory. You will need an appropriate \fI.config\fR file in place when
-building the kernel.
-
 You can run \fBbuildkernel-b2\fR either on the B2 directly, or on a Gentoo PC
 (with an appropriately configured \fBcrossdev\fR setup).
 If running on a PC, a
@@ -33,6 +29,11 @@ B2 natively, the files (kernel, modules, DTB, config and System.map) will be
 moved to the correct positions for you (and prior copies of all but the modules
 backed up).
 
+\fBbuildkernel-b2\fR should be run as root, in the top level kernel source
+directory. You will need an appropriate \fI.config\fR file in place when
+building the kernel (however, if running on the B2, the running kernel's config will
+be used as a fallback, if one is available via \fI/proc/config.gz\fR,
+and no other \fI.config\fR is found).
 .SH ALGORITHM DETAIL (DISK VARIANT)
 .nr step 1 1
 When power is applied to the Excito B2 \fIwithout\fR the rear button depressed,
@@ -135,8 +136,8 @@ T}
 
 Then \fBbootm\fR is run by U-Boot in step 3, which copies our uImage 'shim'
 payload to its target address (which we set via mkimage to be 0x02000000),
-patches up the DTB (with additional info, such as the desired kernel
-command line) and relocates it to somewhere below the 8MiB boundary that
+patches up the DTB (with additional info, such as (U-Boot's) kernel
+command line) then relocates it to somewhere below the 8MiB boundary that
 U-Boot thinks is safe, sets up the various registers required to invoke a
 PowerPC kernel (see the file \fIarch/powerpc/lib/bootm.c\fR, function 
 \fBboot_jump_linux()\fR, in the U-Boot source code), and then starts
@@ -415,6 +416,16 @@ Most of the time, it is fine not to \fBmake clean\fR.
 .BR \-h ", " \-\-help
 Displays a short help screen, and exits.
 .TP
+.BR \-m ", " \-\-menuconfig
+Specifies that the GUI-based kernel configuration tool (\fBmake menuconfig\fR)
+should be invoked at the start of the build.
+.TP
+.BR \-n ", " \-\-no\-pump
+Normally, when building on the B2, this script will invoke \fBmake\fR(1)
+with the \fBpump\fR(1) prefix (to distribute compilation and pre-processing), if
+the \fBdistcc-pump\fR \fBPortage\fR(5) feature is detected.
+Specify this option to force a local build instead.
+.TP
 .BR \-u ", " \-\-usb
 Instructs \fBbuildkernel-b2\fR to create a USB-bootable FIT image (8313E21.itb),
 rather than the default uImage.
@@ -435,9 +446,10 @@ and then install as root.
 Also, this script should really be integrated into the \fIarch/powerpc/boot\fR
 wrapper build process, rather than be shipped standalone.
 .IP \(bu 2
-To make this work, you really need to have a kernel \fI.config\fR that
-overrides the bootloader-provided command line (since that will specify an
-incorrect root, unless you reflash the U-Boot environment).
+Currently, you must override the bootloader-provided command line in
+your kernel \fI.config\fR (since the former will otherwise specify an
+incorrect root, unless you reflash the U-Boot environment...
+which we are trying to avoid).
 .IP \(bu 2
 It should in theory be possible to use \fBkexec()\fR to have a small kernel
 chainload the real one, but I haven't had any success getting this to work
@@ -455,4 +467,6 @@ There is NO WARRANTY, to the extent permitted by law.
 .SH AUTHORS
 sakaki \(em send bug reports or comments to <sakaki@deciban.com>
 .SH "SEE ALSO"
-.BR make (1)
+.BR make (1),
+.BR pump (1),
+.BR portage (5).
