@@ -365,7 +365,7 @@ build_kernel() {
 create_bootable_disk_image() {
     declare -i UIMLEN UBOOTLOAD KERNLENLOC KERNELLEN
     local NEXTFILE
-    
+
     show "Assembling kernel/DTB relocation shim..."
     pushd arch/powerpc/boot
     ${ASCMD} -mregnames -me300 -a -o reloc_shim.o reloc_shim.S
@@ -408,6 +408,8 @@ create_bootable_disk_image() {
     rm -f arch/powerpc/boot/8313E21.dtb
 }
 create_bootable_usb_image() {
+    local NEXTFILE
+
     show "Assembling kernel/DTB relocation shim..."
     pushd arch/powerpc/boot
     ${ASCMD} -mregnames -me300 -a -o reloc_shim_itb.o reloc_shim_itb.S
