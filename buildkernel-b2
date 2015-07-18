@@ -31,7 +31,7 @@ shopt -s nullglob
 
 # ********************** variables ********************* 
 PROGNAME="$(basename "${0}")"
-VERSION="1.0.5"
+VERSION="1.0.6"
 RED_TEXT="" GREEN_TEXT="" YELLOW_TEXT="" RESET_ATTS=""
 if [[ -v TERM && -n "${TERM}" && "${TERM}" != "dumb" ]]; then
     RED_TEXT="$(tput setaf 1)$(tput bold)"
@@ -440,7 +440,7 @@ create_bootable_usb_image() {
             mv "${TGTDIR}/${NEXTFILE}" "${TGTDIR}/${NEXTFILE}.old"
         fi
     done
-    cp install.itb "${TGTDIR}/bubba.itb"
+    cp install.itb "${TGTDIR}/install.itb"
     cp 8313E21.itb "${TGTDIR}/8313E21.itb"
     cp System.map "${TGTDIR}/System.map"
     cp .config "${TGTDIR}/config"
