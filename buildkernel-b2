@@ -31,7 +31,7 @@ shopt -s nullglob
 
 # ********************** variables ********************* 
 PROGNAME="$(basename "${0}")"
-VERSION="1.0.4"
+VERSION="1.0.5"
 RED_TEXT="" GREEN_TEXT="" YELLOW_TEXT="" RESET_ATTS=""
 if [[ -v TERM && -n "${TERM}" && "${TERM}" != "dumb" ]]; then
     RED_TEXT="$(tput setaf 1)$(tput bold)"
@@ -215,8 +215,8 @@ Options:
   -m, --menuconfig      open kernel configuration GUI during build
   -n, --no-pump         do not use a pump make prefix, even if compiling
                         on a B2 with distcc available
-  -u, --usb             build a USB-bootable FIT image (8313E21.itb),
-                        rather than the default uImage
+  -u, --usb             build USB-bootable FIT images (install.itb and
+                        8313E21.itb), rather than the default uImage
   -v, --verbose         display more information, where possible
   -V, --version         display the version number of ${PROGNAME} and exit
 EOF
@@ -354,7 +354,8 @@ build_kernel() {
     ${PUMP} make -j${NUMTHREADS} ${MAKEEXTRAS} vmlinux
     show "Extracting raw binary kernel from vmlinux ELF..."
     ${OBJCOPYCMD} -O binary vmlinux vmlinux.bin
-    show "Compiling DTB..."
+    show "Compiling DTBs..."
+    make ${MAKEEXTRAS} bubba.dtb
     make ${MAKEEXTRAS} 8313E21.dtb
     show "Compiling modules..."
     ${PUMP} make -j${NUMTHREADS} ${MAKEEXTRAS} modules
@@ -393,10 +394,10 @@ create_bootable_disk_image() {
     perl -e "print pack('N',${KERNELLEN})" >> uImage
     cat vmlinux.bin >> uImage
 
-    show "Copying uImage, System.map, config and DTB to ${TGTDIR}..."
+    show "Copying uImage, System.map, config and DTBs to ${TGTDIR}..."
     mkdir -p "${TGTDIR}"
     # make backups first
-    for NEXTFILE in uImage System.map config 8313E21.dtb; do
+    for NEXTFILE in uImage System.map config bubba.dtb 8313E21.dtb; do
         if [ -s "${TGTDIR}/${NEXTFILE}" ]; then
             mv "${TGTDIR}/${NEXTFILE}" "${TGTDIR}/${NEXTFILE}.old"
         fi
@@ -404,6 +405,9 @@ create_bootable_disk_image() {
     cp uImage "${TGTDIR}/uImage"
     cp System.map "${TGTDIR}/System.map"
     cp .config "${TGTDIR}/config"
+    # bubba.dtb is used for rev 1 boards; 8313E21.dtb for rev 2 boards
+    # we provide both
+    cp arch/powerpc/boot/bubba.dtb "${TGTDIR}/bubba.dtb"
     cp arch/powerpc/boot/8313E21.dtb "${TGTDIR}/8313E21.dtb"
     rm -f arch/powerpc/boot/8313E21.dtb
 }
@@ -415,24 +419,32 @@ create_bootable_usb_image() {
     ${ASCMD} -mregnames -me300 -a -o reloc_shim_itb.o reloc_shim_itb.S
     show "Extracting plain binary..."
     ${OBJCOPYCMD} -O binary reloc_shim_itb.o reloc_shim_vmlinux.bin
-    show "Making flattened image tree (FIT) image..."
-    sed -e "s@KERNNAME@${KNAME}@" reloc_shim.its > build_shim.its
+    show "Making flattened image tree (FIT) images..."
+    # install.itb is used for rev 1 boards; 8313E21.itb for rev 2 boards
+    # we build both
+    sed -e "s@KERNNAME@${KNAME}@" reloc_shim_r1.its > build_shim.its
+    PATH="../../../scripts/dtc/:${PATH}" mkimage -f build_shim.its \
+        ../../../install.itb
+    rm -f build_shim.its
+    sed -e "s@KERNNAME@${KNAME}@" reloc_shim_r2.its > build_shim.its
     PATH="../../../scripts/dtc/:${PATH}" mkimage -f build_shim.its \
         ../../../8313E21.itb
     rm -f build_shim.its
-    rm -f reloc_shim_itb.o reloc_shim_vmlinux.bin 8313E21.dtb
+    rm -f reloc_shim_itb.o reloc_shim_vmlinux.bin bubba.dtb 8313E21.dtb
     popd
 
-    show "Copying 8313E21.itb, System.map and config to ${TGTDIR}..."
+    show "Copying install.itb, 8313E21.itb, System.map and config to ${TGTDIR}..."
     mkdir -p "${TGTDIR}"
-    for NEXTFILE in 8313E21.itb System.map config; do
+    for NEXTFILE in install.itb 8313E21.itb System.map config; do
         if [ -s "${TGTDIR}/${NEXTFILE}" ]; then
             mv "${TGTDIR}/${NEXTFILE}" "${TGTDIR}/${NEXTFILE}.old"
         fi
     done
+    cp install.itb "${TGTDIR}/bubba.itb"
     cp 8313E21.itb "${TGTDIR}/8313E21.itb"
     cp System.map "${TGTDIR}/System.map"
     cp .config "${TGTDIR}/config"
+    rm -f arch/powerpc/boot/bubba.dtb
     rm -f arch/powerpc/boot/8313E21.dtb
 }
 finalize_image() {

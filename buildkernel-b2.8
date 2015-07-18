@@ -1,4 +1,4 @@
-.TH BUILDKERNEL-B2 8 "Version 1.0.4: January 2015"
+.TH BUILDKERNEL-B2 8 "Version 1.0.5: July 2015"
 .SH NAME
 buildkernel-b2 \- build bootable Linux kernel for the Excito B2
 .SH SYNOPSIS
@@ -25,7 +25,7 @@ If running on a PC, a
 directory \fIdeploy_root\fR will be created as a result of running the script,
 with the necessary files for you to copy across to your B2.
 If running on the
-B2 natively, the files (kernel, modules, DTB, config and System.map) will be
+B2 natively, the files (kernel, modules, DTBs, config and System.map) will be
 moved to the correct positions for you (and prior copies of all but the modules
 backed up).
 
@@ -42,7 +42,7 @@ which attempts to:
 .IP \n[step]) 3
 load \fI/boot/uImage\fR to 0x00400000 (4MiB), then
 .IP \n+[step])
-load \fI/boot/8313E21.dtb\fR to 0x00600000 (6MiB), then
+load \fI/boot/8313E21.dtb\fR to 0x00600000 (6MiB) (rev 1 B2s load \fI/boot/bubba.dtb\fR instead), then
 .IP \n+[step])
 \fBbootm\fR 0x00400000 - 0x00600000
 .RE
@@ -271,7 +271,7 @@ When power is applied to the Excito B2 \fIwith\fR the rear button depressed, its
 U-Boot bootloader by default executes the \fBusbboot\fR command, which attempts
 to:
 .IP \n[step]) 3
-load \fI/install/8313E21.itb\fR (from USB partition 1) to 0x00400000 (4MiB),
+load \fI/install/8313E21.itb\fR (from USB partition 1) to 0x00400000 (4MiB) (rev 1 B2s load \fI/install/install.itb\fR instead),
 then
 .IP \n+[step])
 \fBbootm\fR
@@ -427,7 +427,8 @@ the \fBdistcc-pump\fR \fBPortage\fR(5) feature is detected.
 Specify this option to force a local build instead.
 .TP
 .BR \-u ", " \-\-usb
-Instructs \fBbuildkernel-b2\fR to create a USB-bootable FIT image (8313E21.itb),
+Instructs \fBbuildkernel-b2\fR to create USB-bootable FIT images
+(install.itb and 8313E21.itb),
 rather than the default uImage.
 .TP
 .BR \-v ", " \-\-verbose
