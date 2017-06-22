@@ -4,6 +4,7 @@ Script to build a bootable Linux kernel for the Excito B2.
 ## Description
 
 <img src="https://raw.githubusercontent.com/sakaki-/resources/master/excito/b2/Excito_b2.jpg" alt="Excito B2, aka Bubba|TWO" width="250px" align="right"/>
+
 **buildkernel-b2** is a script that builds a Gentoo Linux kernel image suitable for booting either from the B2's internal disk (default), or from a USB key (when the **--usb** option is specified).
 
 It is useful when targeting a B2 system with:
